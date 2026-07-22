@@ -31,12 +31,24 @@ class Lexer:
         "DO": TokenType.DO,
         "WHILE": TokenType.WHILE,
         "ENDDO": TokenType.ENDDO,
+        "CASE": TokenType.CASE,
+        "OTHERWISE": TokenType.OTHERWISE,
+        "ENDCASE": TokenType.ENDCASE,
         "EXIT": TokenType.EXIT,
+        "BREAK": TokenType.BREAK,
         "LOOP": TokenType.LOOP,
+        "FUNCTION": TokenType.FUNCTION,
+        "CLASS": TokenType.CLASS,
+        "METHOD": TokenType.METHOD,
+        "DATA": TokenType.DATA,
+        "ENDCLASS": TokenType.ENDCLASS,
         "AND": TokenType.AND,
         "OR": TokenType.OR,
         "NOT": TokenType.NOT,
         "NIL": TokenType.NIL,
+        # TRUE/FALSE are accepted as convenience aliases of the .T./.F. logicals.
+        "TRUE": TokenType.LOGICAL,
+        "FALSE": TokenType.LOGICAL,
     }
 
     DOTTED_KEYWORDS: dict[str, TokenType] = {
@@ -90,12 +102,30 @@ class Lexer:
             self._add_token(TokenType.RBRACE)
         elif char == ",":
             self._add_token(TokenType.COMMA)
+        elif char == ";":
+            # In this didactic dialect ';' acts as a statement separator, so it
+            # is emitted as a NEWLINE and reuses the parser's line handling.
+            self._add_token(TokenType.NEWLINE)
         elif char == "+":
-            self._add_token(TokenType.PLUS)
+            if self._match("="):
+                self._add_token(TokenType.PLUS_ASSIGN)
+            elif self._match("+"):
+                self._add_token(TokenType.PLUS_PLUS)
+            else:
+                self._add_token(TokenType.PLUS)
         elif char == "-":
-            self._add_token(TokenType.MINUS)
+            if self._match("="):
+                self._add_token(TokenType.MINUS_ASSIGN)
+            elif self._match("-"):
+                self._add_token(TokenType.MINUS_MINUS)
+            else:
+                self._add_token(TokenType.MINUS)
         elif char == "*":
-            self._add_token(TokenType.STAR)
+            self._add_token(
+                TokenType.STAR_ASSIGN if self._match("=") else TokenType.STAR
+            )
+        elif char == "^":
+            self._add_token(TokenType.CARET)
         elif char == "%":
             self._add_token(TokenType.PERCENT)
         elif char == "/":
@@ -104,17 +134,22 @@ class Lexer:
             if self._match("="):
                 self._add_token(TokenType.ASSIGN)
             else:
-                self._fail("Expected '=' after ':'.")
+                self._add_token(TokenType.COLON)
         elif char == "=":
             if self._match("="):
                 self._add_token(TokenType.EQUAL_EQUAL)
+            elif self._match(">"):
+                self._add_token(TokenType.FAT_ARROW)
             else:
+                # A single '=' is treated as equality, matching the executor's
+                # existing behavior (assignment uses ':=').
                 self._add_token(TokenType.EQUAL_EQUAL)
         elif char == "!":
+            # "!=" is inequality; a lone "!" is the logical NOT (e.g. !lAtivo).
             if self._match("="):
                 self._add_token(TokenType.NOT_EQUAL)
             else:
-                self._fail("Expected '=' after '!'.")
+                self._add_token(TokenType.NOT)
         elif char == ">":
             self._add_token(
                 TokenType.GREATER_EQUAL if self._match("=") else TokenType.GREATER
@@ -147,7 +182,9 @@ class Lexer:
             self._scan_block_comment()
             return
 
-        self._add_token(TokenType.SLASH)
+        self._add_token(
+            TokenType.SLASH_ASSIGN if self._match("=") else TokenType.SLASH
+        )
 
     def _scan_block_comment(self) -> None:
         while not self._is_at_end():
@@ -225,8 +262,13 @@ class Lexer:
             return
 
         token_type = self.KEYWORDS.get(upper_text, TokenType.IDENTIFIER)
-        literal = None if token_type is not TokenType.NIL else None
-        self._add_token(token_type, literal)
+
+        # TRUE/FALSE map to logical literals, so they carry the boolean value.
+        if token_type is TokenType.LOGICAL:
+            self._add_token(token_type, upper_text == "TRUE")
+            return
+
+        self._add_token(token_type)
 
     def _scan_dotted_literal(self) -> None:
         closing_dot = self.source.find(".", self.current)

@@ -25,7 +25,7 @@ def is_truthy(value: Any) -> bool:
         return value
     if is_numeric(value):
         return value != 0
-    if isinstance(value, (str, list)):
+    if isinstance(value, (str, list, dict)):
         return len(value) > 0
     return True
 
@@ -39,7 +39,16 @@ def format_value(value: Any) -> str:
         return ".T." if value else ".F."
     if isinstance(value, float) and value.is_integer():
         return str(int(value))
+    if isinstance(value, date):
+        # ADVPL shows dates as DD/MM/YYYY.
+        return value.strftime("%d/%m/%Y")
     if isinstance(value, list):
         return "{" + ", ".join(format_value(item) for item in value) + "}"
+    if isinstance(value, dict):
+        pairs = ", ".join(
+            f"{format_value(key)} => {format_value(item)}"
+            for key, item in value.items()
+        )
+        return "{" + pairs + "}"
     return str(value)
 

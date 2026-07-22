@@ -10,13 +10,16 @@ from src.parser.ast_nodes import (
     AssignmentStatement,
     BinaryExpression,
     CallExpression,
+    CaseStatement,
     Expression,
     ExpressionStatement,
     ExitStatement,
     ForStatement,
     FunctionDeclaration,
+    HashLiteral,
     Identifier,
     IfStatement,
+    IndexAssignment,
     IndexExpression,
     Literal,
     LoopStatement,
@@ -38,10 +41,21 @@ class Parser:
         TokenType.ENDIF,
         TokenType.NEXT,
         TokenType.ENDDO,
+        TokenType.CASE,
+        TokenType.OTHERWISE,
+        TokenType.ENDCASE,
         TokenType.USER_FUNCTION,
         TokenType.STATIC_FUNCTION,
+        TokenType.FUNCTION,
         TokenType.EOF,
     }
+
+    # Tokens that terminate a top-level function body.
+    FUNCTION_STOP_TOKENS = (
+        TokenType.USER_FUNCTION,
+        TokenType.STATIC_FUNCTION,
+        TokenType.FUNCTION,
+    )
 
     def __init__(self, tokens: Sequence[Token]) -> None:
         self.tokens = list(tokens)
@@ -64,11 +78,20 @@ class Parser:
             kind = "USER"
         elif self._match(TokenType.STATIC_FUNCTION):
             kind = "STATIC"
+        elif self._match(TokenType.FUNCTION):
+            kind = "FUNCTION"
+        elif self._check(TokenType.CLASS):
+            token = self._peek()
+            raise UnexpectedToken(
+                "CLASS/METHOD (object orientation) is not supported yet in this "
+                "learning version. Use hashes ({\"chave\" => valor} with HB_HSet/"
+                f"HB_HGet) for simple objects. At {token.location()}."
+            )
         else:
             token = self._peek()
             raise UnexpectedToken(
-                f"Expected User Function or Static Function at {token.location()}, "
-                f"got {token.type.name}."
+                f"Expected User Function, Static Function or Function at "
+                f"{token.location()}, got {token.type.name}."
             )
 
         name = self._consume(TokenType.IDENTIFIER, "Expected function name.").lexeme
@@ -77,9 +100,7 @@ class Parser:
         self._consume(TokenType.RPAREN, "Expected ')' after function parameters.")
         self._skip_newlines()
 
-        body = self._statement_list(
-            stop_tokens=(TokenType.USER_FUNCTION, TokenType.STATIC_FUNCTION)
-        )
+        body = self._statement_list(stop_tokens=self.FUNCTION_STOP_TOKENS)
         return FunctionDeclaration(kind, name, params, body)
 
     def _parameter_list(self) -> list[str]:
@@ -118,25 +139,71 @@ class Parser:
         if self._match(TokenType.FOR):
             return self._for_statement()
         if self._match(TokenType.DO):
+            # "Do" introduces either a "Do While" loop or a "Do Case" block.
+            # The "Case" keyword right after "Do" is the block header, so it is
+            # consumed here before parsing the individual Case branches.
+            if self._match(TokenType.CASE):
+                return self._case_statement()
             return self._while_statement()
         if self._match(TokenType.RETURN):
             return self._return_statement()
-        if self._match(TokenType.EXIT):
+        # Both Exit and Break leave the nearest loop.
+        if self._match(TokenType.EXIT, TokenType.BREAK):
             return ExitStatement()
         if self._match(TokenType.LOOP):
             return LoopStatement()
-
-        if self._check(TokenType.IDENTIFIER) and self._check_next(TokenType.ASSIGN):
-            name = self._advance().lexeme
-            self._advance()
-            value = self._expression()
-            return AssignmentStatement(name, value)
 
         if self._check_any(tuple(self.BLOCK_END_TOKENS)):
             token = self._peek()
             raise UnexpectedToken(f"Unexpected {token.type.name} at {token.location()}.")
 
-        return ExpressionStatement(self._expression())
+        return self._assignment_or_expression()
+
+    def _assignment_or_expression(self) -> Statement:
+        """Parse a statement that is either an assignment or a bare expression.
+
+        The left-hand side is parsed as a full expression so that assignment
+        targets can be simple variables (``x``) or array/hash elements
+        (``a[i]``). Compound operators and ``++``/``--`` are desugared into a
+        plain assignment with a BinaryExpression on the right-hand side.
+        """
+
+        target = self._expression()
+
+        if self._match(TokenType.ASSIGN):
+            return self._make_assignment(target, self._expression())
+
+        compound = {
+            TokenType.PLUS_ASSIGN: TokenType.PLUS,
+            TokenType.MINUS_ASSIGN: TokenType.MINUS,
+            TokenType.STAR_ASSIGN: TokenType.STAR,
+            TokenType.SLASH_ASSIGN: TokenType.SLASH,
+        }
+        for assign_token, operator in compound.items():
+            if self._match(assign_token):
+                value = BinaryExpression(target, operator, self._expression())
+                return self._make_assignment(target, value)
+
+        if self._match(TokenType.PLUS_PLUS):
+            value = BinaryExpression(target, TokenType.PLUS, Literal(1))
+            return self._make_assignment(target, value)
+        if self._match(TokenType.MINUS_MINUS):
+            value = BinaryExpression(target, TokenType.MINUS, Literal(1))
+            return self._make_assignment(target, value)
+
+        return ExpressionStatement(target)
+
+    def _make_assignment(self, target: Expression, value: Expression) -> Statement:
+        """Build the proper assignment node for a variable or element target."""
+
+        if isinstance(target, Identifier):
+            return AssignmentStatement(target.name, value)
+        if isinstance(target, IndexExpression):
+            return IndexAssignment(target.collection, target.index, value)
+        raise AdvplSyntaxError(
+            "Invalid assignment target: only variables and array/hash elements "
+            "can be assigned."
+        )
 
     def _variable_declaration(self, keyword: Token) -> VariableDeclaration:
         name = self._consume(TokenType.IDENTIFIER, "Expected variable name.").lexeme
@@ -196,6 +263,32 @@ class Parser:
         self._consume(TokenType.ENDDO, "Expected EndDo to close Do While block.")
         return WhileStatement(condition, body)
 
+    def _case_statement(self) -> CaseStatement:
+        """Parse a Do Case / Case / Otherwise / EndCase selection block."""
+
+        self._skip_newlines()
+        branches: list[tuple[Expression, list[Statement]]] = []
+
+        while self._match(TokenType.CASE):
+            condition = self._expression()
+            self._skip_newlines()
+            body = self._statement_list(
+                stop_tokens=(
+                    TokenType.CASE,
+                    TokenType.OTHERWISE,
+                    TokenType.ENDCASE,
+                )
+            )
+            branches.append((condition, body))
+
+        otherwise: list[Statement] = []
+        if self._match(TokenType.OTHERWISE):
+            self._skip_newlines()
+            otherwise = self._statement_list(stop_tokens=(TokenType.ENDCASE,))
+
+        self._consume(TokenType.ENDCASE, "Expected EndCase to close Do Case block.")
+        return CaseStatement(branches, otherwise)
+
     def _return_statement(self) -> ReturnStatement:
         if self._is_statement_boundary():
             return ReturnStatement(None)
@@ -250,12 +343,21 @@ class Parser:
         return expression
 
     def _factor(self) -> Expression:
-        expression = self._unary()
+        expression = self._power()
         while self._match(TokenType.STAR, TokenType.SLASH, TokenType.PERCENT):
             operator = self._previous().type
-            right = self._unary()
+            right = self._power()
             expression = BinaryExpression(expression, operator, right)
         return expression
+
+    def _power(self) -> Expression:
+        # Exponentiation binds tighter than * / % and is right-associative,
+        # so 2 ^ 3 ^ 2 evaluates as 2 ^ (3 ^ 2).
+        base = self._unary()
+        if self._match(TokenType.CARET):
+            exponent = self._power()
+            return BinaryExpression(base, TokenType.CARET, exponent)
+        return base
 
     def _unary(self) -> Expression:
         if self._match(TokenType.NOT, TokenType.MINUS, TokenType.PLUS):
@@ -301,21 +403,38 @@ class Parser:
             self._consume(TokenType.RPAREN, "Expected ')' after expression.")
             return expression
         if self._match(TokenType.LBRACE):
-            return self._array_literal()
+            return self._brace_literal()
 
         token = self._peek()
         raise AdvplSyntaxError(
             f"Expected expression at {token.location()}, got {token.type.name}."
         )
 
-    def _array_literal(self) -> ArrayLiteral:
-        elements: list[Expression] = []
-        if not self._check(TokenType.RBRACE):
-            while True:
-                elements.append(self._expression())
-                if not self._match(TokenType.COMMA):
-                    break
+    def _brace_literal(self) -> Expression:
+        """Parse a ``{}`` literal, deciding between an array and a hash.
 
+        An empty ``{}`` is an array. When the first element is followed by
+        ``=>`` the whole literal is parsed as a hash (simple object).
+        """
+
+        if self._match(TokenType.RBRACE):
+            return ArrayLiteral([])
+
+        first = self._expression()
+
+        if self._match(TokenType.FAT_ARROW):
+            first_value = self._expression()
+            pairs: list[tuple[Expression, Expression]] = [(first, first_value)]
+            while self._match(TokenType.COMMA):
+                key = self._expression()
+                self._consume(TokenType.FAT_ARROW, "Expected '=>' in hash literal.")
+                pairs.append((key, self._expression()))
+            self._consume(TokenType.RBRACE, "Expected '}' after hash literal.")
+            return HashLiteral(pairs)
+
+        elements: list[Expression] = [first]
+        while self._match(TokenType.COMMA):
+            elements.append(self._expression())
         self._consume(TokenType.RBRACE, "Expected '}' after array literal.")
         return ArrayLiteral(elements)
 
@@ -330,9 +449,12 @@ class Parser:
         if self._check(token_type):
             return self._advance()
 
+        # Friendly diagnostic (Phase 12): the message states what was expected;
+        # here we append the token actually found and the exact source position
+        # (line and column).
         token = self._peek()
         raise UnexpectedToken(
-            f"{message} At {token.location()}, got {token.type.name}."
+            f"{message} Found {token.type.name} at {token.location()}."
         )
 
     def _skip_newlines(self) -> None:

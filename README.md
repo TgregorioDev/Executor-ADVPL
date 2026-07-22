@@ -28,6 +28,7 @@ python main.py examples/age_if.prw
 python main.py examples/loops_arrays.prw
 python main.py examples/functions.prw
 python main.py examples/dates.prw
+python main.py examples/case_hash.prw
 ```
 
 ## Como criar um programa
@@ -79,6 +80,8 @@ src/
     helpers.py
 examples/
 tests/
+  programs/          # programas .prw (001..015), um por recurso
+  test_programs.py   # executa cada programa e valida a saida
 main.py
 README.md
 ```
@@ -98,20 +101,46 @@ Codigo ADVPL
 
 ## Recursos implementados
 
-- `User Function` e `Static Function`
-- `Return`
+- `User Function`, `Static Function` e `Function`
+- `Return` com ou sem valor
 - variaveis `Local`, `Static`, `Public` e `Private`
-- tipos simulados: character, numeric, logical, date, nil e arrays
-- operadores aritmeticos, relacionais e logicos
+- tipos simulados: character, numeric, logical, date, nil, arrays e hash (objeto simples)
+- operadores aritmeticos (`+ - * / % ^`), relacionais (`== != < <= > >=`) e logicos (`AND OR NOT`, tambem `!`)
+- atribuicao `:=`, atribuicoes compostas (`+= -= *= /=`) e incremento/decremento (`++ --`)
+- literais logicos `.T.`/`.F.` e os apelidos `TRUE`/`FALSE`
 - strings e concatenacao com `+`
-- comentarios `//` e `/* ... */`
+- comentarios `//` e `/* ... */`; `;` funciona como separador de comandos
 - `If`, `ElseIf`, `Else`, `EndIf`
-- `For`, `Next`, `Do While`, `EndDo`, `Exit`, `Loop`
-- arrays com `{}`, `AAdd()`, `Len()` e indice 1-based com `aItens[1]`
-- funcoes internas: `ConOut`, `MsgInfo`, `Len`, `Upper`, `Lower`, `AllTrim`, `Str`, `Val`, `AAdd`, `CToD`, `DToC`
-- escopo local por chamada de funcao
+- `Do Case`, `Case`, `Otherwise`, `EndCase`
+- `For`, `Next` (com `Step`), `Do While`, `EndDo`, `Exit`, `Break`, `Loop`
+- arrays com `{}`, indice 1-based (`aItens[1]`) e alteracao (`aItens[2] := 50`)
+- hashes (objetos simples) com `{"chave" => valor}` e as funcoes `HB_H*`
+- funcoes internas:
+  - console/dialogo: `ConOut`, `MsgInfo`, `Alert`, `InputBox`
+  - string: `Len`, `Upper`, `Lower`, `AllTrim`, `SubStr`, `Left`, `Right`, `Str`, `Val`, `Empty`
+  - numerico: `Int`, `Round`, `Abs`
+  - data/hora: `Date`, `Time`, `CToD`, `DToC`
+  - array: `AAdd`, `ALen`, `ASize`
+  - hash: `HB_HNew`, `HB_HHasKey`, `HB_HSet`, `HB_HGet`
+- escopo local por chamada de funcao e recursao
 - tabela de simbolos e pilha de execucao
-- excecoes especificas para erros lexicos, sintaticos e de runtime
+- excecoes especificas para erros lexicos, sintaticos e de runtime, com mensagens
+  que informam linha, coluna, token esperado e token encontrado
+
+### Precedencia de operadores
+
+Da maior para a menor prioridade:
+
+```text
+()            parenteses
+NOT  !        negacao logica e unario -/+
+^             potencia (associativa a direita)
+* / %         multiplicacao, divisao, resto
++ -           soma e subtracao
+== != < <= > >=  comparacoes
+AND           e logico
+OR            ou logico
+```
 
 ## Conceitos representados
 
@@ -135,14 +164,22 @@ As funcoes nativas ficam em `src/functions/builtin.py`. Elas recebem valores Pyt
 
 Datas sao simuladas com `datetime.date`, da biblioteca padrao do Python. `CToD("22/07/2026")` cria uma data e `DToC(dData)` converte a data de volta para texto. Tambem e aceito o formato `YYYY-MM-DD`.
 
-## Limitacoes atuais
+## Recursos pendentes (nao implementados)
 
-- Nao ha banco de dados, alias, areas, RDD, MVC, telas ou componentes TOTVS.
-- `Static Function` ainda nao aplica restricao real de visibilidade por arquivo.
-- `Public` e `Private` sao simplificados.
-- Datas sao simuladas por `CToD`/`DToC`, mas ainda nao cobrem todas as funcoes de data do ADVPL real.
-- Arrays suportam criacao literal, `AAdd`, `Len` e leitura por indice, mas ainda nao cobrem toda a API ADVPL.
-- Nao ha classes, objetos, blocos de codigo, `Switch` ou `Try/Catch`.
+- `CLASS`, `METHOD`, `DATA`, `ENDCLASS` (orientacao a objetos completa com `Self`
+  e `::`). As palavras-chave sao reconhecidas pelo lexer e o parser emite uma
+  mensagem amigavel sugerindo o uso de hashes (`HB_H*`) como objetos simples.
+- Blocos de codigo (`{|x| ... }`), `IIf()`, `Try/Catch`.
+- Banco de dados, alias, areas, RDD, MVC, telas ou componentes TOTVS.
+- API completa de arrays e de datas do ADVPL real.
+- `Static`, `Public` e `Private` existem como escopos, mas de forma simplificada;
+  `Static Function` ainda nao aplica restricao real de visibilidade por arquivo.
+
+## Diferencas em relacao ao ADVPL real (decisoes didaticas)
+
+- `;` e tratado como separador de comandos (e nao como continuacao de linha).
+- `!` e aceito como negacao logica, alem da palavra-chave `NOT`.
+- `TRUE`/`FALSE` sao aceitos como apelidos de `.T.`/`.F.`.
 
 ## Testes
 
@@ -152,7 +189,10 @@ Execute a suite com:
 python -m unittest discover
 ```
 
-Os testes cobrem lexer, parser, interpreter, funcoes internas, variaveis, `If`, `For` e `Do While`.
+Os testes cobrem lexer, parser, interpreter, funcoes internas, variaveis, `If`,
+`For`, `Do While` e `Do Case`. Alem dos testes de unidade, a pasta
+`tests/programs/` contem 15 programas `.prw` (um por recurso) executados de ponta
+a ponta por `tests/test_programs.py`.
 
 ## Roadmap
 

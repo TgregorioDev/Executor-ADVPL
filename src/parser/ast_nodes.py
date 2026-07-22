@@ -64,6 +64,15 @@ class AssignmentStatement(Statement):
 
 
 @dataclass
+class IndexAssignment(Statement):
+    """Represents assignment to an array or hash element (``a[i] := v``)."""
+
+    collection: Expression
+    index: Expression
+    value: Expression
+
+
+@dataclass
 class IfStatement(Statement):
     """Represents IF / ELSEIF / ELSE / ENDIF control flow."""
 
@@ -90,6 +99,14 @@ class WhileStatement(Statement):
 
     condition: Expression
     body: list[Statement]
+
+
+@dataclass
+class CaseStatement(Statement):
+    """Represents a DO CASE / CASE / OTHERWISE / ENDCASE selection block."""
+
+    branches: list[tuple[Expression, list[Statement]]]
+    otherwise: list[Statement]
 
 
 @dataclass
@@ -160,6 +177,16 @@ class ArrayLiteral(Expression):
     """Represents an ADVPL-style array literal such as {1, 2, 3}."""
 
     elements: list[Expression]
+
+
+@dataclass
+class HashLiteral(Expression):
+    """Represents a hash literal such as {"nome" => "Ana", "idade" => 30}.
+
+    Hashes are the didactic stand-in for "simple objects" in this executor.
+    """
+
+    pairs: list[tuple[Expression, Expression]]
 
 
 @dataclass

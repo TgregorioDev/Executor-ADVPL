@@ -17,6 +17,7 @@ class TokenType(Enum):
 
     USER_FUNCTION = auto()
     STATIC_FUNCTION = auto()
+    FUNCTION = auto()  # bare "Function" declaration
     RETURN = auto()
     LOCAL = auto()
     STATIC = auto()
@@ -33,8 +34,18 @@ class TokenType(Enum):
     DO = auto()
     WHILE = auto()
     ENDDO = auto()
+    CASE = auto()  # "Do Case" branch selector
+    OTHERWISE = auto()  # default branch of "Do Case"
+    ENDCASE = auto()  # closes a "Do Case" block
     EXIT = auto()
+    BREAK = auto()  # leaves the nearest loop, alias of Exit
     LOOP = auto()
+    # Object-oriented keywords are recognized by the lexer so the parser can
+    # emit a friendly "not yet supported" message instead of a cryptic error.
+    CLASS = auto()
+    METHOD = auto()
+    DATA = auto()
+    ENDCLASS = auto()
     AND = auto()
     OR = auto()
     NOT = auto()
@@ -45,6 +56,13 @@ class TokenType(Enum):
     STAR = auto()
     SLASH = auto()
     PERCENT = auto()
+    CARET = auto()  # exponentiation "^"
+    PLUS_PLUS = auto()  # increment "++"
+    MINUS_MINUS = auto()  # decrement "--"
+    PLUS_ASSIGN = auto()  # "+="
+    MINUS_ASSIGN = auto()  # "-="
+    STAR_ASSIGN = auto()  # "*="
+    SLASH_ASSIGN = auto()  # "/="
     EQUAL_EQUAL = auto()
     NOT_EQUAL = auto()
     GREATER = auto()
@@ -59,3 +77,5 @@ class TokenType(Enum):
     LBRACE = auto()
     RBRACE = auto()
     COMMA = auto()
+    COLON = auto()  # member access ":" (reserved for future objects)
+    FAT_ARROW = auto()  # hash literal separator "=>"

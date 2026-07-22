@@ -1,5 +1,6 @@
-"""Runtime state: call stack, scopes, functions and console output."""
+"""Runtime state: call stack, scopes, functions, input and console output."""
 
+from collections.abc import Callable
 from typing import Any
 
 from src.errors.errors import AdvplRuntimeError, UndefinedVariable
@@ -12,13 +13,19 @@ from src.utils.helpers import normalize_name
 class Runtime:
     """Holds mutable execution state for the interpreter."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        input_provider: Callable[[str], str] | None = None,
+        output_writer: Callable[[str], None] | None = None,
+    ) -> None:
         self.call_stack: list[Scope] = []
         self.static_scope = Scope("static")
         self.public_scope = Scope("public")
         self.private_scope = Scope("private")
         self.functions: dict[str, FunctionDeclaration] = {}
         self.output: list[str] = []
+        self.input_provider = input_provider or input
+        self.output_writer = output_writer
 
     def register_function(self, function: FunctionDeclaration) -> None:
         """Register a function using ADVPL's case-insensitive naming model."""
@@ -78,9 +85,26 @@ class Runtime:
         scope.assign(name, value)
 
     def write_output(self, value: str) -> None:
-        """Append one line to the simulated console output."""
+        """Record one console line and, when live, emit it immediately.
+
+        The output list is kept for tests and for callers that inspect the
+        console afterwards. When an output_writer is configured (terminal
+        execution) the line is also emitted right away, so ConOut interleaves
+        correctly with the live prompts printed by InputBox.
+        """
 
         self.output.append(value)
+        if self.output_writer is not None:
+            self.output_writer(value)
+
+    def read_input(self, prompt: str = "") -> str:
+        """Read text from the configured input provider.
+
+        Terminal execution uses Python's input. Tests inject a provider so the
+        InputBox built-in is deterministic and never blocks.
+        """
+
+        return self.input_provider(prompt)
 
     @property
     def current_scope(self) -> Scope:

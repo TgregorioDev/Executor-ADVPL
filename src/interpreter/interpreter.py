@@ -11,12 +11,15 @@ from src.parser.ast_nodes import (
     AssignmentStatement,
     BinaryExpression,
     CallExpression,
+    CaseStatement,
     Expression,
     ExpressionStatement,
     ExitStatement,
     ForStatement,
+    HashLiteral,
     Identifier,
     IfStatement,
+    IndexAssignment,
     IndexExpression,
     Literal,
     LoopStatement,
@@ -74,6 +77,28 @@ class Interpreter:
         self.runtime.assign_variable(node.name, self._evaluate(node.value))
         return None
 
+    def visit_IndexAssignment(self, node: IndexAssignment) -> None:
+        collection = self._evaluate(node.collection)
+        value = self._evaluate(node.value)
+
+        if isinstance(collection, dict):
+            # Hashes (simple objects) are keyed by the raw value.
+            collection[self._evaluate(node.index)] = value
+            return None
+
+        if isinstance(collection, list):
+            index = self._number(self._evaluate(node.index), "array index")
+            if not float(index).is_integer():
+                raise TypeMismatch("Array index must be an integer.")
+            zero_based = int(index) - 1
+            try:
+                collection[zero_based] = value
+            except IndexError as exc:
+                raise AdvplRuntimeError("Array index out of range.") from exc
+            return None
+
+        raise TypeMismatch("Element assignment expects an array or a hash.")
+
     def visit_IfStatement(self, node: IfStatement) -> None:
         if is_truthy(self._evaluate(node.condition)):
             self._execute_block(node.then_branch)
@@ -85,6 +110,17 @@ class Interpreter:
                 return None
 
         self._execute_block(node.else_branch)
+        return None
+
+    def visit_CaseStatement(self, node: CaseStatement) -> None:
+        # Execute the first branch whose condition is truthy, mirroring the
+        # top-to-bottom evaluation of ADVPL's Do Case block.
+        for condition, statements in node.branches:
+            if is_truthy(self._evaluate(condition)):
+                self._execute_block(statements)
+                return None
+
+        self._execute_block(node.otherwise)
         return None
 
     def visit_ForStatement(self, node: ForStatement) -> None:
@@ -182,6 +218,8 @@ class Interpreter:
             if divisor == 0:
                 raise DivisionByZero("Modulo by zero.")
             return self._number(left, "%") % divisor
+        if node.operator is TokenType.CARET:
+            return self._number(left, "^") ** self._number(right, "^")
         if node.operator is TokenType.EQUAL_EQUAL:
             return left == right
         if node.operator is TokenType.NOT_EQUAL:
@@ -211,10 +249,23 @@ class Interpreter:
     def visit_ArrayLiteral(self, node: ArrayLiteral) -> list[Any]:
         return [self._evaluate(element) for element in node.elements]
 
+    def visit_HashLiteral(self, node: HashLiteral) -> dict[Any, Any]:
+        # A hash literal builds a Python dict, the didactic "simple object".
+        return {
+            self._evaluate(key): self._evaluate(value) for key, value in node.pairs
+        }
+
     def visit_IndexExpression(self, node: IndexExpression) -> Any:
         collection = self._evaluate(node.collection)
-        index = self._number(self._evaluate(node.index), "array index")
 
+        # Hashes are accessed by key, arrays and strings by 1-based position.
+        if isinstance(collection, dict):
+            key = self._evaluate(node.index)
+            if key not in collection:
+                raise AdvplRuntimeError(f"Hash key {key!r} not found.")
+            return collection[key]
+
+        index = self._number(self._evaluate(node.index), "array index")
         if not float(index).is_integer():
             raise TypeMismatch("Array index must be an integer.")
 
@@ -225,7 +276,7 @@ class Interpreter:
             except IndexError as exc:
                 raise AdvplRuntimeError("Array index out of range.") from exc
 
-        raise TypeMismatch("Indexing is supported only for arrays and strings.")
+        raise TypeMismatch("Indexing is supported only for arrays, strings and hashes.")
 
     def _default_entry_point(self, program: Program) -> str:
         for function in program.functions:
